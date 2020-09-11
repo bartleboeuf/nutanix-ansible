@@ -1,0 +1,16 @@
+---
+- hosts: localhost
+  gather_facts: false
+  collections:
+    - yst.ntnx
+  tasks:
+    - name: Karbon create cluster inventory
+      ntnx_karbon_create_inventory:
+        name: "{{ cluster_name }}"
+        state: present
+        pc_host: "{{ pc_host }}"
+        pc_username: "{{ pc_username }}"
+        pc_password: "{{ pc_password }}"
+        ssh_certificates_download_path: "./KARBON-{{ cluster_name }}"
+        inventory_cluster_filepath: "./KARBON-{{ cluster_name }}-inventory"
+        ssl_verify: false

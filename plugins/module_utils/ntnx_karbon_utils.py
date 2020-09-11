@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 from __future__ import absolute_import, division, print_function
 
 __metaclass__ = type
@@ -44,6 +45,9 @@ class NtnxKarbonClusterManager:
         self.ssh_certificates_download = module.params.get("ssh_certificates_download")
         self.ssh_certificates_download_path = module.params.get(
             "ssh_certificates_download_path"
+        )
+        self.inventory_cluster_filepath = module.params.get(
+            "inventory_cluster_filepath"
         )
         self.wait_completion = module.params.get("wait_completion")
         self.prism_object_fetcher = PrismObjectFetcher(self.logger, self.request_helper)
@@ -261,12 +265,33 @@ class NtnxKarbonClusterManager:
         self.final_state.extra["msg"] = "export KUBECONFIG='%s'" % kube_yaml_full_path
         self.final_state.extra["kubeconfig_path"] = kube_yaml_full_path
 
+    def get_inventory_file(self, cluster_obj):
+        str_list = []
+        cnx_str = f"ansible_connection=ssh ansible_user=nutanix ansible_ssh_private_key_file={self.ssh_certificates_download_path} \n"
+        str_list.append("[masters]\n")
+        masters = self.get_master_ips(cluster_obj)
+        for master in masters:
+            str_list.append(f"{master} {cnx_str}")
+        workers = self.get_worker_ips(cluster_obj)
+        str_list.append("[workers]\n")
+        for worker in workers:
+            str_list.append(f"{worker} {cnx_str}")
+        inventory_file = NtnxFileHandler.write_file(
+            self.inventory_cluster_filepath, "".join(str_list)
+        )
+        self.final_state.changed = True
+        self.logger.info(f"inventory_cluster_filepath: {inventory_file}")
+        self.final_state.extra["inventory_cluster_filepath"] = inventory_file
+
     def delete_ssh_certificates(self):
         self.__delete_file("%s.pub" % self.ssh_certificates_download_path)
         self.__delete_file(self.ssh_certificates_download_path)
 
     def delete_kubeconfig_file(self):
         self.__delete_file(self.kubeconfig_download_path)
+
+    def delete_inventory_file(self):
+        self.__delete_file(self.inventory_cluster_filepath)
 
     def __delete_file(self, path):
         self.logger.info("Deleting file " + path)
@@ -312,6 +337,10 @@ class NtnxKarbonClusterManager:
         worker_data = self.__get_current_worker_data(cluster_obj)
         return list(map(lambda e: e["resource_config"]["ip_address"], worker_data))
 
+    def get_master_ips(self, cluster_obj):
+        master_data = self.__get_current_master_data(cluster_obj)
+        return list(map(lambda e: e["resource_config"]["ip_address"], master_data))
+
     def __delete_workers(self, cluster_uuid, worker_data, amount):
         tasks = []
         for i in range(0, amount):
@@ -340,6 +369,9 @@ class NtnxKarbonClusterManager:
 
     def __get_current_worker_data(self, cluster_obj):
         return cluster_obj["cluster_metadata"]["k8s_config"]["workers"]
+
+    def __get_current_master_data(self, cluster_obj):
+        return cluster_obj["cluster_metadata"]["k8s_config"]["masters"]
 
     def __get_cluster_obj_raw(self):
         response = self.request_helper.post("/karbon/acs/k8s/cluster/list", {})
